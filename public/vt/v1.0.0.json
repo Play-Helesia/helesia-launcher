@@ -1,0 +1,17 @@
+{
+  "Helesia-Launcher-1.0.0-linux-amd64.deb": {
+    "sha256": "34186c4fecb12fec01a48ef647f845c570c78bef2d09e58258d3a03bef7cbc5b"
+  },
+  "Helesia-Launcher-1.0.0-linux-x86_64.AppImage": {
+    "sha256": "bd74afbb6e23d990ce27509432393f566fb55b44620370d3781bdaa0b02714eb"
+  },
+  "Helesia-Launcher-1.0.0-mac-arm64.dmg": {
+    "sha256": "85d0ee323dde8af8af486a3fb5961ae3d915a0533f8d92b547f791be2336ff9b"
+  },
+  "Helesia-Launcher-1.0.0-mac-x64.dmg": {
+    "sha256": "092747460da0cabb3ba2956159aa73042d775707ed4e0030064c5f704856b0bb"
+  },
+  "Helesia-Launcher-1.0.0-win-x64.exe": {
+    "sha256": "65f12ae0881610fbdf8f05e645f679cf89a7e2a93ddb8b2db6d5a9f733c0b14d"
+  }
+}
