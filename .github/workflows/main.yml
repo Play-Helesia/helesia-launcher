@@ -1,0 +1,161 @@
+name: Build & publish VT index & manifest
+
+on:
+  release:
+    types:
+      - published
+      - prereleased
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  vt-index:
+    runs-on: ubuntu-latest
+    env:
+      REPO: ${{ github.repository }}
+      API: https://api.github.com/repos/${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VT_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+      REL_ID: ${{ github.event.release.id }}
+      TAG: ${{ github.event.release.tag_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: true
+          path: repo
+
+      - name: Validate release inputs
+        shell: bash
+        run: |
+          if [ -z "${REL_ID}" ] || [ -z "${TAG}" ]; then
+            echo "ERROR: REL_ID or TAG is empty."
+            echo "REL_ID='${REL_ID}', TAG='${TAG}'"
+            exit 1
+          fi
+
+      - name: Install jq & curl
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl
+
+      - name: Download release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dl
+          curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+            "${API}/releases/${REL_ID}" > release.json
+          jq '[ .assets[] | select(.name != "vt-index.json") | select((.name | test("\\.(blockmap|yml)$")) | not) | { name: .name, url: .browser_download_url, size: .size, content_type: .content_type, updated_at: .updated_at } ]' \
+            release.json > assets_raw.json
+          jq -r '.[] | "\(.name)\t\(.url)"' assets_raw.json | while IFS=$'\t' read -r NAME URL; do
+            curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -o "dl/${NAME}" "$URL"
+          done
+
+      - name: Generate vt-index.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('fs');
+          const crypto = require('crypto');
+          const { execSync } = require('child_process');
+          const dir = 'dl';
+          const VT = process.env.VT_API_KEY || '';
+          const out = {};
+
+          function vtQuery(sha) {
+            if (!VT) return null;
+            try {
+              const r = execSync(`curl -fsS -H "x-apikey: ${VT}" -H "accept: application/json" "https://www.virustotal.com/api/v3/files/${sha}"`);
+              return JSON.parse(r.toString());
+            } catch {
+              return null;
+            }
+          }
+
+          function vtUpload(fp) {
+            if (!VT) return null;
+            const stat = fs.statSync(fp);
+            if (stat.size > 32 * 1024 * 1024) return null;
+            try {
+              const r = execSync(`curl -fsS -H "x-apikey: ${VT}" -H "accept: application/json" -F "file=@${fp}" https://www.virustotal.com/api/v3/files`);
+              return JSON.parse(r.toString());
+            } catch {
+              return null;
+            }
+          }
+
+          function pollAnalysis(id) {
+            if (!VT || !id) return;
+            for (let i = 0; i < 60; i++) {
+              try {
+                const r = execSync(`curl -fsS -H "x-apikey: ${VT}" -H "accept: application/json" "https://www.virustotal.com/api/v3/analyses/${id}"`);
+                const js = JSON.parse(r.toString());
+                const st = js?.data?.attributes?.status;
+                if (st === 'completed') return;
+              } catch {}
+              Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
+            }
+          }
+
+          for (const name of fs.readdirSync(dir)) {
+            const path = dir + '/' + name;
+            if (!fs.statSync(path).isFile()) continue;
+            const buf = fs.readFileSync(path);
+            const sha = crypto.createHash('sha256').update(buf).digest('hex');
+            let vtUrl = null;
+            if (vtQuery(sha)) {
+              vtUrl = `https://www.virustotal.com/gui/file/${sha}`;
+            } else {
+              const up = vtUpload(path);
+              const id = up?.data?.id;
+              if (id) {
+                pollAnalysis(id);
+                if (vtQuery(sha)) {
+                  vtUrl = `https://www.virustotal.com/gui/file/${sha}`;
+                }
+              }
+            }
+            out[name] = { sha256: sha };
+            if (vtUrl) out[name].vt = vtUrl;
+          }
+          fs.writeFileSync('vt-index.json', JSON.stringify(out, null, 2));
+          NODE
+
+      - name: Generate manifest (releases_latest.json)
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -s '
+            (.[0]) as $assets
+            | (.[1] | to_entries) as $vt
+            | $assets
+            | map(. + {
+                sha256: ($vt | map(select(.key == .name))[0].value.sha256 // empty),
+                vt:     ($vt | map(select(.key == .name))[0].value.vt     // empty)
+              })
+          ' assets_raw.json vt-index.json > releases_latest.json
+          mkdir -p repo/public/vt repo/public/releases
+          cp vt-index.json repo/public/vt/${TAG}.json
+          cp vt-index.json repo/public/vt/latest.json
+          cp releases_latest.json repo/public/releases/latest.json
+
+      - name: Commit & push
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd repo
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add public/vt public/releases
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "VT index & manifest ${TAG}"
+          git push origin HEAD:${{ github.event.repository.default_branch }} --force
