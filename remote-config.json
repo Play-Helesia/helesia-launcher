@@ -1,0 +1,9 @@
+{
+  "api": "https://api-dev.play-helesia.com",
+  "cdn": "https://download.play-helesia.com",
+  "website": "https://play-helesia.com",
+  "gameServers": {
+    "stable": "",
+    "beta": "https://game-dev.play-helesia.com"
+  }
+}
