@@ -1,7 +1,7 @@
 {
   "apis": {
     "beta": "https://api-dev.play-helesia.com",
-    "stable": "https://api-dev.play-helesia.com"
+    "stable": "https://api.play-helesia.com"
   },
   "cdn": "https://download.play-helesia.com",
   "website": "https://play-helesia.com",
