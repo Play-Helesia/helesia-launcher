@@ -69,6 +69,28 @@ jobs:
           const VT = process.env.VT_API_KEY || '';
           const out = {};
 
+          if (!VT) {
+            console.log('WARN: VT_API_KEY is not set — only sha256 will be written, no VirusTotal lookup/upload.');
+          }
+
+          function sleep(ms) {
+            try { execSync(`sleep ${Math.ceil(ms / 1000)}`); } catch {}
+          }
+
+          function errInfo(e) {
+            const code = (e && typeof e.status === 'number') ? `exit=${e.status}` : 'exit=?';
+            const stderr = (e && e.stderr) ? e.stderr.toString().trim() : '';
+            return stderr ? `${code} stderr=${stderr}` : code;
+          }
+
+          function order(name) {
+            const n = name.toLowerCase();
+            if (/win|\.exe$/.test(n)) return 0;
+            if (/mac|darwin|\.dmg$|\.pkg$/.test(n)) return 1;
+            if (/linux|\.deb$|\.appimage$|\.tar\.gz$/.test(n)) return 2;
+            return 3;
+          }
+
           function vtQuery(sha) {
             if (!VT) return null;
             try {
@@ -79,53 +101,115 @@ jobs:
             }
           }
 
+          function vtGetUploadUrl() {
+            try {
+              const r = execSync(`curl -fsS -H "x-apikey: ${VT}" -H "accept: application/json" "https://www.virustotal.com/api/v3/files/upload_url"`);
+              const js = JSON.parse(r.toString());
+              return js && js.data ? js.data : null;
+            } catch (e) {
+              console.log(`  upload_url error: ${errInfo(e)}`);
+              return null;
+            }
+          }
+
           function vtUpload(fp) {
             if (!VT) return null;
             const stat = fs.statSync(fp);
-            if (stat.size > 32 * 1024 * 1024) return null;
+            const sizeMB = (stat.size / (1024 * 1024)).toFixed(1);
+            let endpoint = 'https://www.virustotal.com/api/v3/files';
+
+            if (stat.size > 650 * 1024 * 1024) {
+              console.log(`  skip upload: size ${sizeMB} MB > 650 MB (VT public API limit)`);
+              return null;
+            }
+
+            if (stat.size > 32 * 1024 * 1024) {
+              console.log(`  size ${sizeMB} MB > 32 MB — requesting upload_url`);
+              endpoint = vtGetUploadUrl();
+              if (!endpoint) {
+                console.log(`  failed to obtain upload_url`);
+                return null;
+              }
+            } else {
+              console.log(`  size ${sizeMB} MB — direct upload`);
+            }
+
             try {
-              const r = execSync(`curl -fsS -H "x-apikey: ${VT}" -H "accept: application/json" -F "file=@${fp}" https://www.virustotal.com/api/v3/files`);
+              const r = execSync(
+                `curl -fsS -H "x-apikey: ${VT}" -H "accept: application/json" -F "file=@${fp}" "${endpoint}"`,
+                { maxBuffer: 64 * 1024 * 1024 }
+              );
               return JSON.parse(r.toString());
-            } catch {
+            } catch (e) {
+              console.log(`  upload error: ${errInfo(e)}`);
               return null;
             }
           }
 
           function pollAnalysis(id) {
-            if (!VT || !id) return;
-            for (let i = 0; i < 60; i++) {
+            if (!VT || !id) return false;
+            for (let i = 0; i < 30; i++) {
               try {
                 const r = execSync(`curl -fsS -H "x-apikey: ${VT}" -H "accept: application/json" "https://www.virustotal.com/api/v3/analyses/${id}"`);
                 const js = JSON.parse(r.toString());
-                const st = js?.data?.attributes?.status;
-                if (st === 'completed') return;
-              } catch {}
-              Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
+                const st = js && js.data && js.data.attributes ? js.data.attributes.status : 'unknown';
+                console.log(`  poll ${i + 1}/30: ${st}`);
+                if (st === 'completed') return true;
+              } catch (e) {
+                console.log(`  poll ${i + 1}/30: error ${errInfo(e)}`);
+              }
+              if (i < 29) sleep(30000);
+            }
+            console.log(`  poll timeout after 15 min`);
+            return false;
+          }
+
+          const names = fs.readdirSync(dir)
+            .filter(n => fs.statSync(dir + '/' + n).isFile())
+            .sort((a, b) => order(a) - order(b) || a.localeCompare(b));
+
+          console.log(`Processing ${names.length} file(s) in order:`);
+          for (const n of names) console.log(`  - ${n}`);
+
+          for (const name of names) {
+            const path = dir + '/' + name;
+            console.log(`\n=== ${name} ===`);
+            const buf = fs.readFileSync(path);
+            const sha = crypto.createHash('sha256').update(buf).digest('hex');
+            console.log(`  sha256: ${sha}`);
+            let vtUrl = null;
+
+            if (vtQuery(sha)) {
+              console.log(`  found existing report on VT`);
+              vtUrl = `https://www.virustotal.com/gui/file/${sha}`;
+            } else if (VT) {
+              console.log(`  no existing report — uploading`);
+              const up = vtUpload(path);
+              const id = up && up.data ? up.data.id : null;
+              if (id) {
+                console.log(`  analysis id: ${id}`);
+                const ok = pollAnalysis(id);
+                if (ok && vtQuery(sha)) {
+                  vtUrl = `https://www.virustotal.com/gui/file/${sha}`;
+                } else if (ok) {
+                  console.log(`  analysis completed but vtQuery returned null (indexing delay?)`);
+                }
+              } else {
+                console.log(`  no analysis id returned`);
+              }
+            }
+
+            out[name] = { sha256: sha };
+            if (vtUrl) {
+              out[name].vt = vtUrl;
+              console.log(`  vt: ${vtUrl}`);
+            } else {
+              console.log(`  vt: (none)`);
             }
           }
 
-          for (const name of fs.readdirSync(dir)) {
-            const path = dir + '/' + name;
-            if (!fs.statSync(path).isFile()) continue;
-            const buf = fs.readFileSync(path);
-            const sha = crypto.createHash('sha256').update(buf).digest('hex');
-            let vtUrl = null;
-            if (vtQuery(sha)) {
-              vtUrl = `https://www.virustotal.com/gui/file/${sha}`;
-            } else {
-              const up = vtUpload(path);
-              const id = up?.data?.id;
-              if (id) {
-                pollAnalysis(id);
-                if (vtQuery(sha)) {
-                  vtUrl = `https://www.virustotal.com/gui/file/${sha}`;
-                }
-              }
-            }
-            out[name] = { sha256: sha };
-            if (vtUrl) out[name].vt = vtUrl;
-          }
           fs.writeFileSync('vt-index.json', JSON.stringify(out, null, 2));
+          console.log(`\nWrote vt-index.json with ${Object.keys(out).length} entries`);
           NODE
 
       - name: Generate manifest (releases_latest.json)
