@@ -6,6 +6,11 @@ on:
       - published
       - prereleased
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to process (leave empty = latest release)'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -18,8 +23,6 @@ jobs:
       API: https://api.github.com/repos/${{ github.repository }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       VT_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
-      REL_ID: ${{ github.event.release.id }}
-      TAG: ${{ github.event.release.tag_name }}
 
     steps:
       - name: Checkout
@@ -30,19 +33,42 @@ jobs:
           persist-credentials: true
           path: repo
 
-      - name: Validate release inputs
-        shell: bash
-        run: |
-          if [ -z "${REL_ID}" ] || [ -z "${TAG}" ]; then
-            echo "ERROR: REL_ID or TAG is empty."
-            echo "REL_ID='${REL_ID}', TAG='${TAG}'"
-            exit 1
-          fi
-
       - name: Install jq & curl
         run: |
           sudo apt-get update
           sudo apt-get install -y jq curl
+
+      - name: Resolve release (tag + id)
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REL_ID: ${{ github.event.release.id }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "release" ]; then
+            REL_ID="$EVENT_REL_ID"
+            TAG="$EVENT_TAG"
+            echo "Source: release event"
+          elif [ -n "${INPUT_TAG:-}" ]; then
+            echo "Source: workflow_dispatch with tag=$INPUT_TAG"
+            TAG="$INPUT_TAG"
+            REL_JSON=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$API/releases/tags/$TAG")
+            REL_ID=$(echo "$REL_JSON" | jq -r .id)
+          else
+            echo "Source: workflow_dispatch — fetching latest release"
+            REL_JSON=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$API/releases/latest")
+            TAG=$(echo "$REL_JSON" | jq -r .tag_name)
+            REL_ID=$(echo "$REL_JSON" | jq -r .id)
+          fi
+          if [ -z "$REL_ID" ] || [ -z "$TAG" ] || [ "$REL_ID" = "null" ] || [ "$TAG" = "null" ]; then
+            echo "ERROR: Could not resolve release. EVENT_NAME=$EVENT_NAME REL_ID='$REL_ID' TAG='$TAG'"
+            exit 1
+          fi
+          echo "Resolved: REL_ID=$REL_ID TAG=$TAG"
+          echo "REL_ID=$REL_ID" >> "$GITHUB_ENV"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
 
       - name: Download release assets
         shell: bash
