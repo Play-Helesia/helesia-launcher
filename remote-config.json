@@ -8,5 +8,8 @@
   "gameServers": {
     "stable": "",
     "beta": "https://game-dev.play-helesia.com"
+  },
+  "serverPins": {
+    "beta": "af00ba46dfa9cda3509b5784d852f7e47f9913e7e7993be21c148f83300a1736"
   }
 }
