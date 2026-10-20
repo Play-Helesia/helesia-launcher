@@ -1,0 +1,30 @@
+{
+  "Helesia-Launcher-1.2.5-win-x64.exe": {
+    "sha256": "7e7b9a9746528c4314408108b81752169e0e9a0cca280118c6f95b69a9145759",
+    "vt": "https://www.virustotal.com/gui/file/7e7b9a9746528c4314408108b81752169e0e9a0cca280118c6f95b69a9145759"
+  },
+  "Helesia.Launcher-1.2.5-mac-arm64.dmg": {
+    "sha256": "182af003c0c23aeefb35360f0a1b764a25cdbaf6af6b6960e12eb585ebdba9db",
+    "vt": "https://www.virustotal.com/gui/file/182af003c0c23aeefb35360f0a1b764a25cdbaf6af6b6960e12eb585ebdba9db"
+  },
+  "Helesia.Launcher-1.2.5-mac-arm64.zip": {
+    "sha256": "47f82089d3bd4123dab4d3a2ca4abf8ddae3845e694f0ab743348c4d696a70aa",
+    "vt": "https://www.virustotal.com/gui/file/47f82089d3bd4123dab4d3a2ca4abf8ddae3845e694f0ab743348c4d696a70aa"
+  },
+  "Helesia.Launcher-1.2.5-mac-x64.dmg": {
+    "sha256": "9c45c54aa1f67a4c4d2abcad1f89ea6b88e567b3a31e5f0433d52e648a555440",
+    "vt": "https://www.virustotal.com/gui/file/9c45c54aa1f67a4c4d2abcad1f89ea6b88e567b3a31e5f0433d52e648a555440"
+  },
+  "Helesia.Launcher-1.2.5-mac-x64.zip": {
+    "sha256": "02b7cd39d7b233c65584deb19f40fb9751f573ef0075eb7e61b1070e74efba77",
+    "vt": "https://www.virustotal.com/gui/file/02b7cd39d7b233c65584deb19f40fb9751f573ef0075eb7e61b1070e74efba77"
+  },
+  "Helesia-Launcher-1.2.5-linux-amd64.deb": {
+    "sha256": "9292aa64b32782fcc15aecc60b807da3abf21a4647255b1cb670b4220157508b",
+    "vt": "https://www.virustotal.com/gui/file/9292aa64b32782fcc15aecc60b807da3abf21a4647255b1cb670b4220157508b"
+  },
+  "Helesia-Launcher-1.2.5-linux-x86_64.AppImage": {
+    "sha256": "ed5b6ac76140b8cfa9218fd47cc3900d7cd2f13f1ca3546ec392f1115d0b776a",
+    "vt": "https://www.virustotal.com/gui/file/ed5b6ac76140b8cfa9218fd47cc3900d7cd2f13f1ca3546ec392f1115d0b776a"
+  }
+}
